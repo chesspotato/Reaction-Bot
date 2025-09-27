@@ -8,7 +8,6 @@ import os
 from discord import app_commands
 import datetime
 
-
 class Client(commands.Bot):
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
@@ -19,6 +18,7 @@ class Client(commands.Bot):
             print(f'Synced {len(synced)} global command(s).')
         except Exception as e:
             print(f'Error syncing commands: {e}')
+
 
 
     
@@ -40,85 +40,108 @@ reaction_file = "reaction.json"
 async def auto_message(interaction: discord.Interaction, triggerword: str = "", message: str = ""):
     if triggerword == "":
         await interaction.response.send_message("Please provide a trigger word.", ephemeral=True)
-    elif message == "":
+        return
+    if message == "":
         await interaction.response.send_message("Please provide a message to send.", ephemeral=True)
-    else:
-        try:
-            if os.path.exists(reaction_file):
-                with open(reaction_file, "r", encoding="utf-8") as file:
-                    try:
-                        reactions = json.load(file)
-                    except json.JSONDecodeError:
-                        reactions = {}
+        return
 
-            reactions[triggerword] = message
+    try:
+        if os.path.exists(reaction_file):
+            with open(reaction_file, "r", encoding="utf-8") as file:
+                try:
+                    reactions = json.load(file)
+                except json.JSONDecodeError:
+                    reactions = {}
+        else:
+            reactions = {}
 
-            with open(reaction_file, "w") as file:
-                json.dump(reactions, file)
+        user_id = str(interaction.user.id)
+        if user_id not in reactions:
+            reactions[user_id] = {}
 
-            await interaction.response.send_message(f"Auto message set for trigger '{triggerword}'.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message("An error occurred while saving the message.", ephemeral=True)
+        reactions[user_id][triggerword] = message
+
+        with open(reaction_file, "w", encoding="utf-8") as file:
+            json.dump(reactions, file, indent=4)
+
+        await interaction.response.send_message(f"Auto message set for trigger '{triggerword}'.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message("An error occurred while saving the message.", ephemeral=True)
+
 
 react_file = "react.json"
 
-@bot.tree.command(name= "auto_react", description="Select a reaction to automaticly send as a reaction to a message of your choosing")
-async def auto_react(interaction: discord.Interaction, triggerword2: str , reaction: str):
+@bot.tree.command(name="auto_react", description="Select a reaction to automatically send as a reaction to a message of your choosing")
+async def auto_react(interaction: discord.Interaction, triggerword2: str, reaction: str):
     if triggerword2 == "":
         await interaction.response.send_message("Please provide a trigger word.", ephemeral=True)
-    elif reaction == "":
-        await interaction.response.send_message("Please provide a message to send.", ephemeral=True)
-    else:
-        try:
-            if os.path.exists(react_file):
-                    with open(react_file, "r", encoding="utf-8") as file:
-                        try:
-                            react = json.load(file)
-                        except json.JSONDecodeError:
-                            react = {}
+        return
+    if reaction == "":
+        await interaction.response.send_message("Please provide a reaction to send.", ephemeral=True)
+        return
 
-            react[triggerword2] = reaction
-            with open(react_file, "w") as file:
-                json.dump(react, file)
+    try:
+        if os.path.exists(react_file):
+            with open(react_file, "r", encoding="utf-8") as file:
+                try:
+                    react = json.load(file)
+                except json.JSONDecodeError:
+                    react = {}
+        else:
+            react = {}
 
-            await interaction.response.send_message(f"Auto reaction set for trigger '{triggerword2}' with reaction '{reaction}'.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message("An error occurred while saving the message.", ephemeral=True)
+        user_id = str(interaction.user.id)
+        if user_id not in react:
+            react[user_id] = {}
 
-@bot.listen('on_message')
+        react[user_id][triggerword2] = reaction
+
+        with open(react_file, "w", encoding="utf-8") as file:
+            json.dump(react, file, indent=4)
+
+        await interaction.response.send_message(f"Auto reaction set for trigger '{triggerword2}' with reaction '{reaction}'.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message("An error occurred while saving the reaction.", ephemeral=True)
+
+@bot.listen("on_message")
 async def check_auto_message(message: discord.Message):
     if message.author == bot.user:
         return
 
-    reactions = {}
+    
     if os.path.exists(reaction_file):
         with open(reaction_file, "r", encoding="utf-8") as file:
             try:
                 reactions = json.load(file)
             except json.JSONDecodeError:
                 reactions = {}
-    sent = False
-    for trigger, response in reactions.items():
-        if trigger in message.content:
-            if not sent:
-                await message.channel.send(response)
-                sent = True
-            break
+    else:
+        reactions = {}
 
-    react = {}
+    user_id = str(message.author.id)
+    if user_id in reactions:
+        for trigger, response in reactions[user_id].items():
+            if trigger in message.content:
+                await message.channel.send(response)
+                break
+
+    
     if os.path.exists(react_file):
         with open(react_file, "r", encoding="utf-8") as file:
             try:
                 react = json.load(file)
             except json.JSONDecodeError:
                 react = {}
+    else:
+        react = {}
 
-    for trigger2, response in react.items():
-        if trigger2 in message.content:
-            try: 
-                await message.add_reaction(response)
-            except Exception as e:
-                print(f" Failed to react with '{response}' for trigger '{trigger2}': {e}")
+    if user_id in react:
+        for trigger2, emoji in react[user_id].items():
+            if trigger2 in message.content:
+                try:
+                    await message.add_reaction(emoji)
+                except Exception as e:
+                    print(f"Failed to react with '{emoji}' for trigger '{trigger2}': {e}")
                 break
             
 empty = {}
@@ -155,13 +178,13 @@ async def delete_auto_message(interaction: discord.Interaction, triggerword: str
     except Exception as e:
         await interaction.response.send_message("An error occurred while deleting the auto message.", ephemeral=True)
 
-@bot.tree.command(name= "delete-auto-react", description = "Delete a specific auto reaction by its trigger word")
+@bot.tree.command(name= "delete-auto_react", description = "Delete a specific auto reaction by its trigger word")
 async def delete_auto_react(interaction: discord.Interaction, triggerword2: str):
     if not os.path.exists(react_file):
         await interaction.response.send_message("No auto reaction found.", ephemeral=True)
         return
     try:
-        with open(react_file, "r", encoding="etf-8") as file:
+        with open(react_file, "r", encoding="utf-8") as file:
             react_data = json.load(file)
         
         if triggerword2 in react_data:
@@ -175,7 +198,7 @@ async def delete_auto_react(interaction: discord.Interaction, triggerword2: str)
     except Exception as e:
         await interaction.response.send_message(f'An error occurred while deleting the auto reaction')
 
-@bot.tree.command(name= "list-all-auto-message", description= "Lists all current auto message commands")
+@bot.tree.command(name= "list-all-auto-message", description= "Lists all current auto message and react commands")
 async def list_auto_message(interaction: discord.Interaction):
 
     if not os.path.exists(reaction_file) and not os.path.exists(react_file):
